@@ -11,7 +11,10 @@ create or replace PACKAGE util AS
                     p_commission_pct IN VARCHAR2 DEFAULT NULL,
                     p_manager_id IN NUMBER DEFAULT 100,
                     p_department_id IN NUMBER);
-
+                    
+  PROCEDURE FIRE_AN_EMPLOYEE(
+                    P_EMPLOYEE_ID IN NUMBER);
+                    
 END util;
 
 ------------------------------------------------------------------------------
@@ -127,5 +130,45 @@ LOG_UTIL.LOG_START('ADD EMPLOYEE');
     LOG_UTIL.LOG_FINISH('ADD EMPLOYEE');
 
 END ADD_EMPLOYEE;
+
+----------------------------------------------------------
+
+PROCEDURE FIRE_AN_EMPLOYEE(P_EMPLOYEE_ID IN NUMBER)
+IS V_EEMPLOYEE VARCHAR2(200);
+    
+BEGIN
+    LOG_UTIL.LOG_START('FIRE AN EMPLOYEE');
+
+    BEGIN
+        CHECK_WORK_TIME;
+    END;
+    
+    BEGIN
+        SELECT EM.FIRST_NAME ||' '|| EM.LAST_NAME ||' '|| EM.JOB_ID ||' DEPARTMENT: '|| EM.DEPARTMENT_ID
+        INTO V_EEMPLOYEE
+        FROM EMPLOYEES EM
+        WHERE EM.EMPLOYEE_ID = P_EMPLOYEE_ID;
+        EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+            RAISE_APPLICATION_ERROR(-20001,'Переданий співробітник не існує');
+    END;
+    
+    BEGIN
+        DELETE FROM EMPLOYEES EM
+        WHERE EM.EMPLOYEE_ID = P_EMPLOYEE_ID;
+        COMMIT;
+        dbms_output.put_line('Співробітник ' || V_EEMPLOYEE || ' видалено успішно');
+    END;
+    
+    LOG_UTIL.LOG_FINISH('FIRE AN EMPLOYEE');
+    
+    EXCEPTION
+    WHEN OTHERS THEN 
+    LOG_UTIL.LOG_ERROR(sqlerrm,'FIRE AN EMPLOYEE');
+    LOG_UTIL.LOG_FINISH('FIRE AN EMPLOYEE');
+
+END FIRE_AN_EMPLOYEE;
+    
+-----------------------------------------------------------------  
 
 END util;
