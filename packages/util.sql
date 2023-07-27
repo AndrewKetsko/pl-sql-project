@@ -15,6 +15,19 @@ create or replace PACKAGE util AS
   PROCEDURE FIRE_AN_EMPLOYEE(
                     P_EMPLOYEE_ID IN NUMBER);
                     
+  PROCEDURE CHANGE_ATTRIBUTE_EMPLOYEE(
+                    P_EMPLOYEE_ID IN NUMBER,
+                    p_first_name IN VARCHAR2 DEFAULT NULL,
+                    p_last_name IN VARCHAR2 DEFAULT NULL,
+                    p_email IN VARCHAR2 DEFAULT NULL,
+                    p_phone_number IN VARCHAR2 DEFAULT NULL,
+                    p_job_id IN VARCHAR2 DEFAULT NULL,
+                    p_salary IN NUMBER DEFAULT NULL,
+                    p_commission_pct IN VARCHAR2 DEFAULT NULL,
+                    p_manager_id IN NUMBER DEFAULT NULL,
+                    p_department_id IN NUMBER DEFAULT NULL);
+                    
+                    
 END util;
 
 ------------------------------------------------------------------------------
@@ -171,4 +184,94 @@ END FIRE_AN_EMPLOYEE;
     
 -----------------------------------------------------------------  
 
+PROCEDURE CHANGE_ATTRIBUTE_EMPLOYEE(
+                    P_EMPLOYEE_ID IN NUMBER,
+                    p_first_name IN VARCHAR2 DEFAULT NULL,
+                    p_last_name IN VARCHAR2 DEFAULT NULL,
+                    p_email IN VARCHAR2 DEFAULT NULL,
+                    p_phone_number IN VARCHAR2 DEFAULT NULL,
+                    p_job_id IN VARCHAR2 DEFAULT NULL,
+                    p_salary IN NUMBER DEFAULT NULL,
+                    p_commission_pct IN VARCHAR2 DEFAULT NULL,
+                    p_manager_id IN NUMBER DEFAULT NULL,
+                    p_department_id IN NUMBER DEFAULT NULL)
+    IS
+        V_STRING VARCHAR2(1000) DEFAULT NULL;
+        V_EXISTS NUMBER;
+        
+BEGIN
+    LOG_UTIL.LOG_START('CHANGE ATTRIBUTE EMPLOYEE');
+
+        BEGIN
+            check_work_time;
+        END;
+
+        BEGIN
+            SELECT 1
+            INTO V_EXISTS
+            FROM EMPLOYEES EM
+            WHERE EM.EMPLOYEE_ID = P_EMPLOYEE_ID;
+            EXCEPTION
+            WHEN NO_DATA_FOUND THEN
+                RAISE_APPLICATION_ERROR(-20001,'Введено неіснуючий код співробітника');
+        END;
+        
+        BEGIN
+            IF p_first_name IS NOT NULL 
+            THEN V_STRING:=V_STRING || 'FIRST_NAME=''' || p_first_name || ''',';
+            END IF;
+            IF p_last_name IS NOT NULL 
+            THEN V_STRING:=V_STRING || 'last_name=''' || p_last_name || ''',';
+            END IF;            
+            IF p_email IS NOT NULL 
+            THEN V_STRING:=V_STRING || 'email=' || p_email || ',';
+            END IF;            
+            IF p_phone_number IS NOT NULL 
+            THEN V_STRING:=V_STRING || 'phone_number=' || p_phone_number || ',';
+            END IF;            
+            IF p_job_id IS NOT NULL 
+            THEN V_STRING:=V_STRING || 'job_id=' || p_job_id || ',';
+            END IF;            
+            IF p_salary IS NOT NULL 
+            THEN V_STRING:=V_STRING || 'salary=' || p_salary || ',';
+            END IF;            
+            IF p_commission_pct IS NOT NULL 
+            THEN V_STRING:=V_STRING || 'commission_pct=' || p_commission_pct || ',';
+            END IF;            
+            IF p_manager_id IS NOT NULL 
+            THEN V_STRING:=V_STRING || 'manager_id=' || p_manager_id || ',';
+            END IF;            
+            IF p_department_id IS NOT NULL 
+            THEN V_STRING:=V_STRING || 'department_id=' || p_department_id || ',';
+            END IF;                                
+        END;
+
+        BEGIN
+            IF V_STRING IS NULL THEN 
+                RAISE_APPLICATION_ERROR(-20001,'Відсутні дані для зміни');
+            END IF;  
+        END;
+     
+        BEGIN               
+            V_STRING:=SUBSTR(V_STRING,1,LENGTH(V_STRING)-1);
+            EXECUTE IMMEDIATE
+                'update employees
+                set '|| V_STRING ||'
+                where employee_id = ' || P_EMPLOYEE_ID ;
+            COMMIT;
+            dbms_output.put_line('У співробітника ' || P_EMPLOYEE_ID || ' успішно оновлені атрибути');
+        EXCEPTION
+            WHEN OTHERS THEN 
+                LOG_UTIL.LOG_ERROR(sqlerrm,'CHANGE ATTRIBUTE EMPLOYEE');
+        END;
+    
+    LOG_UTIL.LOG_FINISH('CHANGE ATTRIBUTE EMPLOYEE');
+
+    EXCEPTION
+    WHEN OTHERS THEN 
+    LOG_UTIL.LOG_ERROR(sqlerrm,'CHANGE ATTRIBUTE EMPLOYEE');
+    LOG_UTIL.LOG_FINISH('CHANGE ATTRIBUTE EMPLOYEE');
+    
+END CHANGE_ATTRIBUTE_EMPLOYEE;
+ 
 END util;
