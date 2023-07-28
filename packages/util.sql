@@ -1,6 +1,15 @@
 create or replace PACKAGE util AS
-                       
-  PROCEDURE ADD_EMPLOYEE(
+
+TYPE rec_value_list IS RECORD(value_list VARCHAR2(100));
+
+TYPE tab_value_list IS TABLE OF rec_value_list;
+  
+FUNCTION table_from_list(p_list_val  IN VARCHAR2,
+                        p_separator IN VARCHAR2 DEFAULT ',') 
+                        RETURN tab_value_list
+                        PIPELINED;
+
+PROCEDURE ADD_EMPLOYEE(
                     p_first_name IN VARCHAR2,
                     p_last_name IN VARCHAR2,
                     p_email IN VARCHAR2,
@@ -12,10 +21,10 @@ create or replace PACKAGE util AS
                     p_manager_id IN NUMBER DEFAULT 100,
                     p_department_id IN NUMBER);
                     
-  PROCEDURE FIRE_AN_EMPLOYEE(
+PROCEDURE FIRE_AN_EMPLOYEE(
                     P_EMPLOYEE_ID IN NUMBER);
                     
-  PROCEDURE CHANGE_ATTRIBUTE_EMPLOYEE(
+PROCEDURE CHANGE_ATTRIBUTE_EMPLOYEE(
                     P_EMPLOYEE_ID IN NUMBER,
                     p_first_name IN VARCHAR2 DEFAULT NULL,
                     p_last_name IN VARCHAR2 DEFAULT NULL,
@@ -27,7 +36,13 @@ create or replace PACKAGE util AS
                     p_manager_id IN NUMBER DEFAULT NULL,
                     p_department_id IN NUMBER DEFAULT NULL);
                     
-                    
+PROCEDURE copy_table (
+                    p_source_scheme IN VARCHAR2,
+                    p_target_scheme IN VARCHAR2 DEFAULT USER,
+                    p_list_table IN VARCHAR2,       
+                    p_copy_data IN BOOLEAN DEFAULT FALSE,
+                    po_result OUT VARCHAR2);
+        
 END util;
 
 ------------------------------------------------------------------------------
@@ -273,5 +288,96 @@ BEGIN
     LOG_UTIL.LOG_FINISH('CHANGE ATTRIBUTE EMPLOYEE');
     
 END CHANGE_ATTRIBUTE_EMPLOYEE;
+
+---------------------------------------------------------------------------
+
+PROCEDURE copy_table (
+            p_source_scheme IN VARCHAR2,
+            p_target_scheme IN VARCHAR2 DEFAULT USER,
+            p_list_table IN VARCHAR2,       
+            p_copy_data IN BOOLEAN DEFAULT FALSE,
+            po_result OUT VARCHAR2) 
+        IS
+            V_STRING VARCHAR2(500);
+
+BEGIN
+    FOR I IN (  SELECT *
+                FROM TABLE(util.table_from_list(p_list_val => p_list_table)))
+    LOOP
+            
+        IF p_copy_data THEN
+            BEGIN
+                EXECUTE IMMEDIATE 'CREATE TABLE '||p_target_scheme||'.'||I.VALUE_LIST||' AS SELECT * FROM '||p_source_scheme||'.'||I.VALUE_LIST;
+            EXCEPTION
+                WHEN OTHERS THEN 
+                    LOG_UTIL.LOG_ERROR(sqlerrm,'COPY TABLE'); 
+            END;
+        ELSE  
+            BEGIN
+                SELECT 'CREATE TABLE '||p_target_scheme||'.'||table_name||' ('||LISTAGG(column_name ||' '|| data_type||count_symbol,', ')WITHIN GROUP(ORDER BY column_id)||')' AS ddl_code
+                INTO V_STRING
+                FROM (  SELECT table_name,
+                            column_name,
+                            data_type,
+                             CASE
+                               WHEN data_type = 'VARCHAR2' THEN '('||data_length||')'
+                               WHEN data_type = 'DATE' THEN NULL
+                               WHEN data_type = 'NUMBER' THEN replace( '('||data_precision||','||data_scale||')', '(,)', NULL)
+                             END AS count_symbol,
+                            column_id
+                        FROM all_tab_columns
+                        WHERE owner = p_source_scheme
+                        AND table_name = I.VALUE_LIST
+                        ORDER BY table_name, column_id)
+                GROUP BY table_name;
+                EXECUTE IMMEDIATE V_STRING;
+            EXCEPTION
+                WHEN OTHERS THEN 
+                    LOG_UTIL.LOG_ERROR(sqlerrm,'COPY TABLE'); 
+            END;  
+        END IF;
+        TO_LOG('COPY TABLE','TABLE '|| I.VALUE_LIST ||' CREATED');
+    END LOOP;    
+END copy_table;
+
+------------------------------------------------------------------------------
  
+  FUNCTION table_from_list( p_list_val  IN VARCHAR2,
+                            p_separator IN VARCHAR2 DEFAULT ',') 
+                            RETURN tab_value_list
+                            PIPELINED IS
+  
+    out_rec tab_value_list := tab_value_list();
+    l_cur   SYS_REFCURSOR;
+  
+  BEGIN
+    OPEN l_cur FOR
+        SELECT TRIM(regexp_substr(p_list_val,'[^' || p_separator || ']+',1,LEVEL)) AS cur_value
+        FROM dual
+        CONNECT BY LEVEL <= regexp_count(p_list_val,p_separator) + 1;
+    BEGIN
+      LOOP
+        EXIT WHEN l_cur%NOTFOUND;
+        FETCH l_cur BULK COLLECT
+          INTO out_rec;
+        FOR i IN 1 .. out_rec.count LOOP
+          PIPE ROW(out_rec(i));
+        END LOOP;
+      END LOOP;
+      CLOSE l_cur;
+    EXCEPTION
+      WHEN OTHERS THEN
+        IF (l_cur%ISOPEN) THEN
+          CLOSE l_cur;
+          RAISE;
+        ELSE
+          RAISE;
+        END IF;
+    END;
+  END table_from_list;
+  
+-------------------------------------------------------------------------
+
 END util;
+
+
