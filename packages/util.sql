@@ -3,11 +3,24 @@ create or replace PACKAGE util AS
 TYPE rec_value_list IS RECORD(value_list VARCHAR2(100));
 
 TYPE tab_value_list IS TABLE OF rec_value_list;
+
+TYPE rec_exchange IS RECORD(r030         NUMBER,
+                            txt          VARCHAR2(100),
+                            rate         NUMBER,
+                            cur          VARCHAR2(100),
+                            exchangedate DATE);
+    
+TYPE tab_exchange IS TABLE OF rec_exchange;
   
 FUNCTION table_from_list(p_list_val  IN VARCHAR2,
                         p_separator IN VARCHAR2 DEFAULT ',') 
                         RETURN tab_value_list
                         PIPELINED;
+                        
+FUNCTION get_currency(p_currency IN VARCHAR2 DEFAULT 'USD',
+                    p_date     IN DATE DEFAULT SYSDATE) 
+                    RETURN tab_exchange
+                    PIPELINED;
 
 PROCEDURE ADD_EMPLOYEE(
                     p_first_name IN VARCHAR2,
@@ -21,8 +34,7 @@ PROCEDURE ADD_EMPLOYEE(
                     p_manager_id IN NUMBER DEFAULT 100,
                     p_department_id IN NUMBER);
                     
-PROCEDURE FIRE_AN_EMPLOYEE(
-                    P_EMPLOYEE_ID IN NUMBER);
+PROCEDURE FIRE_AN_EMPLOYEE(P_EMPLOYEE_ID IN NUMBER);
                     
 PROCEDURE CHANGE_ATTRIBUTE_EMPLOYEE(
                     P_EMPLOYEE_ID IN NUMBER,
@@ -42,15 +54,17 @@ PROCEDURE copy_table (
                     p_list_table IN VARCHAR2,       
                     p_copy_data IN BOOLEAN DEFAULT FALSE,
                     po_result OUT VARCHAR2);
-        
+                    
+PROCEDURE API_NBU_SYNC;
+
 END util;
 
 ------------------------------------------------------------------------------
 
 create or replace PACKAGE BODY util AS
 
-
-    PROCEDURE check_work_time IS
+  
+PROCEDURE check_work_time IS
   BEGIN
   
         IF to_char(SYSDATE,'HH24:MI:SS') NOT BETWEEN '08:00:00' AND '18:00:00' OR
@@ -62,7 +76,7 @@ create or replace PACKAGE BODY util AS
   
   END check_work_time;
 
----------------------------------------------------------
+  ------------------------------------------------------------------
 
 PROCEDURE ADD_EMPLOYEE(
                     p_first_name IN VARCHAR2,
@@ -85,7 +99,7 @@ BEGIN
 LOG_UTIL.LOG_START('ADD EMPLOYEE');
 
         BEGIN
-            check_work_time; --LINE 22
+            check_work_time; --LINE 4
         END;
 
         BEGIN
@@ -157,8 +171,9 @@ LOG_UTIL.LOG_START('ADD EMPLOYEE');
     LOG_UTIL.LOG_ERROR(sqlerrm,'ADD EMPLOYEE');
     LOG_UTIL.LOG_FINISH('ADD EMPLOYEE');
 
+    
 END ADD_EMPLOYEE;
-
+  
 ----------------------------------------------------------
 
 PROCEDURE FIRE_AN_EMPLOYEE(P_EMPLOYEE_ID IN NUMBER)
@@ -342,7 +357,7 @@ END copy_table;
 
 ------------------------------------------------------------------------------
  
-  FUNCTION table_from_list( p_list_val  IN VARCHAR2,
+FUNCTION table_from_list( p_list_val  IN VARCHAR2,
                             p_separator IN VARCHAR2 DEFAULT ',') 
                             RETURN tab_value_list
                             PIPELINED IS
@@ -378,6 +393,75 @@ END copy_table;
   
 -------------------------------------------------------------------------
 
-END util;
+PROCEDURE API_NBU_SYNC IS v_list_currencies VARCHAR2(500);
+    
+BEGIN
+    LOG_UTIL.LOG_START('API NBU SYNC');
+     
+    BEGIN
+        SELECT S.VALUE_TEXT
+        INTO V_LIST_CURRENCIES
+        FROM SYS_PARAMS S
+--        WHERE S.PARAM_NAME = 'list_currencies'
+;
+    EXCEPTION
+        WHEN OTHERS THEN 
+            LOG_UTIL.LOG_ERROR(sqlerrm,'API NBU SYNC');
+    END;
+     
+    BEGIN
+        FOR I IN (SELECT value_list AS curr FROM TABLE(util.table_from_list(p_list_val => v_list_currencies)))
+        LOOP
+            INSERT INTO cur_exchange (r030, txt, rate, cur, exchangedate)
+            SELECT * FROM TABLE(util.get_currency(p_currency => I.curr));
+            COMMIT;
+        END LOOP;
+    EXCEPTION
+        WHEN OTHERS THEN 
+            LOG_UTIL.LOG_ERROR(sqlerrm,'API NBU SYNC');
+    END;
+    
+    LOG_UTIL.LOG_FINISH('API NBU SYNC');
+END API_NBU_SYNC;
+                    
+--------------------------------------------------------------------------
 
+FUNCTION get_currency(p_currency IN VARCHAR2 DEFAULT 'USD',
+                        p_date     IN DATE DEFAULT SYSDATE) 
+    RETURN tab_exchange
+    PIPELINED IS
+  
+    out_rec tab_exchange := tab_exchange();
+    l_cur   SYS_REFCURSOR;
+  
+BEGIN
+    OPEN l_cur FOR
+        SELECT tt.r030, tt.txt, tt.rate, tt.cur, to_date(tt.exchangedate,'dd.mm.yyyy') AS exchangedate
+        FROM (SELECT get_needed_curr(p_valcode => p_currency, p_date    => p_date) AS json_value
+                FROM dual)
+        CROSS JOIN json_table(json_value, '$[*]' columns(r030 NUMBER path '$.r030', txt VARCHAR2(100) path '$.txt', rate NUMBER path '$.rate', cur VARCHAR2(100) path '$.cc', exchangedate VARCHAR2(100) path '$.exchangedate')) tt;
+    BEGIN
+      LOOP
+        EXIT WHEN l_cur%NOTFOUND;
+        FETCH l_cur BULK COLLECT
+          INTO out_rec;
+        FOR i IN 1 .. out_rec.count LOOP
+          PIPE ROW(out_rec(i));
+        END LOOP;
+      END LOOP;
+      CLOSE l_cur;
+    EXCEPTION
+      WHEN OTHERS THEN
+        IF (l_cur%ISOPEN) THEN
+          CLOSE l_cur;
+          RAISE;
+        ELSE
+          RAISE;
+        END IF;
+    END;
+  END get_currency;
+  
+----------------------------------------------------------------------
+
+END util;
 
