@@ -402,7 +402,7 @@ BEGIN
         SELECT S.VALUE_TEXT
         INTO V_LIST_CURRENCIES
         FROM SYS_PARAMS S
---        WHERE S.PARAM_NAME = 'list_currencies'
+        WHERE S.PARAM_NAME = 'list_currencies'
 ;
     EXCEPTION
         WHEN OTHERS THEN 
